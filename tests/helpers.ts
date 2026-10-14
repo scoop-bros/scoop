@@ -6,7 +6,11 @@ export const CONFIG = 'FBLDbjc7tG7YZJMMvnNFnK2Q1iquNPjJ4mHiv47Ufqsk';
 export const MINT = 'J9nHG1LgzTiHLZPqxtZcJ9eJapTSWhUGzkVj8Up84nXT';
 export const VAULT = 'BVibkWi4cpBnyxLj5kb421VUND1BcgnmBTvZdV7ksQQ';
 export const PD = 'FhoBCPQZeFvQaYXjgo4maVNAYxCUXzeCrDxS8gZr4x1c';
-const AL = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+// Erwartete EURC-Zahlungsmints, identisch zur KONFIG in index.html.
+export const EURC_DEVNET = 'BHDWiNzzgPkNj8gX9SZU7U6fywJhrSK99hBC9A3tbR9f'; // Test-EURC der Kasse
+export const EURC_MAINNET = 'HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr'; // Circle EURC
+export const FIXED_RATE = 10000000n; // 1 EURC = 10 SCOOP
+export const AL = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 
 export const b58e = (b: Uint8Array): string => {
   let n = 0n;
@@ -47,8 +51,10 @@ export const mintAccount = (supply: bigint, decimals = 6): Uint8Array => {
   return d;
 };
 
-export const configAccount = (rate: bigint): Uint8Array => {
+// Layout wie die Seite es liest: Bytes 8..40 = Zahlungsmint (Base58-Pubkey), Byte 40..48 = rate (u64le).
+export const configAccount = (rate: bigint, paymentMint: string): Uint8Array => {
   const d = new Uint8Array(48);
+  d.set(b58d(paymentMint), 8);
   d.set(u64le(rate), 40);
   return d;
 };

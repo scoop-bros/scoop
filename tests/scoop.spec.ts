@@ -1,15 +1,18 @@
 import { test, expect, Page } from '@playwright/test';
-import { ATA_SCOOP, DEVNET, MAINNET, CONFIG, MINT, VAULT, PD, configAccount, mintAccount, mockRpc, pdAccount, tokenAccount } from './helpers';
+import { ATA_SCOOP, DEVNET, MAINNET, CONFIG, MINT, VAULT, PD, EURC_DEVNET, EURC_MAINNET, FIXED_RATE, configAccount, mintAccount, mockRpc, pdAccount, tokenAccount } from './helpers';
 
 const url = `file://${__dirname}/../index.html`;
 const U = '4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T';
 const A = '5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1';
+// Falsche Zahlungsmint mit 6 Dezimalen, wie sie nach einer USDC-Initialisierung in der Config liegen würde.
+const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
-// uU (USDC-ATA) fehlt in der Map → RPC liefert null → Seite rechnet 0n → USDC-Hinweis erscheint.
-const base = (me: string) => ({
-  [CONFIG]: configAccount(8873901n), // 10 / 1.1269 = 8,873901; Anzeige über sc(): 8,87
+// uU (EURC-ATA) fehlt in der Map → RPC liefert null → Seite rechnet 0n → EURC-Hinweis erscheint.
+// Config: EURC-Mint des Netzwerks + fester Kurs 10 SCOOP/EURC.
+const base = (me: string, mint = EURC_DEVNET) => ({
+  [CONFIG]: configAccount(FIXED_RATE, mint),
   [MINT]: mintAccount(100000000n),   // 100 SCOOP Umlauf
-  [VAULT]: tokenAccount(20000000n),  // 20 USDC Kasse
+  [VAULT]: tokenAccount(20000000n),  // 20 EURC Kasse
   [PD]: pdAccount(me),
   [ATA_SCOOP[me]]: tokenAccount(5000000n) // uS: 5,00 SCOOP = 2,0 Tassen
 });
@@ -59,14 +62,15 @@ test('Devnet, verbundene Wallet: Tassen, Kassen-Zeile, Konto-Hinweise', async ({
   await page.goto(url);
   await page.getByRole('button', { name: 'Mit Fake Wallet verbinden' }).click();
   await expect(page.locator('#bal')).toBeVisible();
-  await expect(page.locator('#scoops')).toHaveText('5,00 SCOOP · 0,00 USDC');
+  await expect(page.locator('#scoops')).toHaveText('5,00 SCOOP · 0,00 EURC');
   await expect(page.locator('#cups')).toHaveText('2,0');
-  await expect(page.locator('#kasse')).toContainText('20,00 USDC');
+  await expect(page.locator('#kasse')).toContainText('20,00 EURC');
   await expect(page.locator('#kasse')).toContainText('100,00 SCOOP');
-  await expect(page.locator('#kasse')).toContainText('8,87');
+  await expect(page.locator('#kasse')).toContainText('1 SCOOP = 0,10 EURC');
+  await expect(page.locator('#bad')).toBeHidden();
   await expect(page.locator('#hints .hint')).toHaveCount(2);
   await expect(page.locator('#hints')).toContainText('Du brauchst etwas SOL für Gebühren');
-  await expect(page.locator('#hints')).toContainText('Auf dieser Wallet liegt kein USDC.');
+  await expect(page.locator('#hints')).toContainText('Auf dieser Wallet liegt kein EURC.');
 });
 
 test('Nicht-Admin: Admin-Karte versteckt', async ({ page }) => {
@@ -89,11 +93,11 @@ test('Admin: Admin-Karte sichtbar', async ({ page }) => {
 
 test('?net=mainnet: Requests an publicnode, kein api-key in Request-URLs', async ({ page }) => {
   const calls: string[] = [];
-  await mockRpc(page, base(U), calls);
+  await mockRpc(page, base(U, EURC_MAINNET), calls); // Mainnet-Config mit Circle-EURC
   await injectWallet(page, U);
   await page.goto(url + '?net=mainnet');
   await page.getByRole('button', { name: 'Mit Fake Wallet verbinden' }).click();
-  await expect(page.locator('#scoops')).toHaveText('5,00 SCOOP · 0,00 USDC');
+  await expect(page.locator('#scoops')).toHaveText('5,00 SCOOP · 0,00 EURC');
   expect(calls.length).toBeGreaterThan(0);
   expect(calls.every(c => new URL(c.split(' ')[1]).origin === MAINNET)).toBe(true);
   expect(calls.some(c => /api-key/i.test(c))).toBe(false);
@@ -105,7 +109,32 @@ test('Devnet-Default: Wallet-Daten kommen vom Devnet-RPC', async ({ page }) => {
   await injectWallet(page, U);
   await page.goto(url);
   await page.getByRole('button', { name: 'Mit Fake Wallet verbinden' }).click();
-  await expect(page.locator('#scoops')).toHaveText('5,00 SCOOP · 0,00 USDC');
+  await expect(page.locator('#scoops')).toHaveText('5,00 SCOOP · 0,00 EURC');
   expect(calls.length).toBeGreaterThan(0);
   expect(calls.every(c => new URL(c.split(' ')[1]).origin === DEVNET)).toBe(true);
+});
+
+test('Alte USDC-Config: Kasse erkannt, Aufladen und Abheben gesperrt', async ({ page }) => {
+  await mockRpc(page, base(A, USDC)); // Config zeigt noch die USDC-Mint
+  await injectWallet(page, A); // Admin: wäre sonst die Admin-Karte sichtbar
+  await page.goto(url);
+  await page.getByRole('button', { name: 'Mit Fake Wallet verbinden' }).click();
+  await expect(page.locator('#cups')).toHaveText('2,0'); //SCOOP-Konten weiterhin nutzbar
+  await expect(page.locator('#bad')).toBeVisible();
+  await expect(page.locator('#badMsg')).toContainText('EPjF');
+  await expect(page.locator('#buyCard')).toHaveClass(/off/); // .off = gedimmt + klickgesperrt
+  await expect(page.locator('#buyB')).toBeDisabled();
+  await expect(page.locator('#admCard')).toBeHidden();
+  await expect(page.locator('#hints')).toContainText('noch nicht auf EURC');
+});
+
+test('Falscher Kurs: Kasse gesperrt, Abweichung benannt', async ({ page }) => {
+  await mockRpc(page, { ...base(U), [CONFIG]: configAccount(8873901n, EURC_DEVNET) }); // EURC-Mint, alter EUR/USD-Kurs
+  await injectWallet(page, U);
+  await page.goto(url);
+  await page.getByRole('button', { name: 'Mit Fake Wallet verbinden' }).click();
+  await expect(page.locator('#bad')).toBeVisible();
+  await expect(page.locator('#badMsg')).toContainText('8,87');
+  await expect(page.locator('#buyCard')).toHaveClass(/off/);
+  await expect(page.locator('#buyB')).toBeDisabled();
 });

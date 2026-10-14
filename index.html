@@ -57,6 +57,8 @@ input[type=number]{width:100%;min-height:60px;font:inherit;font-size:1.4rem;font
   </div>
 </section>
 
+<div id="bad" class="hint hide">⚠️ Kassen-Abweichung: <span id="badMsg"></span></div>
+
 <section class="card off" id="payCard">
   <h2>Kaffee verbuchen</h2>
   <div class="row"><button class="sec" data-s="cup" data-d="-1" aria-label="weniger">−</button><div class="val" id="cupV"></div><button class="sec" data-s="cup" data-d="1" aria-label="mehr">+</button></div>
@@ -68,7 +70,7 @@ input[type=number]{width:100%;min-height:60px;font:inherit;font-size:1.4rem;font
 <section class="card off" id="buyCard">
   <div><h2>Guthaben aufladen</h2><p class="mute">Immer hier aufladen, niemals direkt an die Kasse überweisen – dafür gibt es kein SCOOP.</p></div>
   <div class="row"><button class="sec" data-s="buy" data-d="-1" aria-label="weniger">−</button><div class="val" id="buyV"></div><button class="sec" data-s="buy" data-d="1" aria-label="mehr">+</button></div>
-  <input type="range" id="buy" min="1" max="30" step="1" value="5" aria-label="USDC">
+  <input type="range" id="buy" min="1" max="30" step="1" value="5" aria-label="EURC">
   <p class="mute" id="buyP" style="text-align:center;font-size:1.05rem"></p>
   <div id="hints"></div>
   <button id="buyB">Aufladen</button>
@@ -76,13 +78,9 @@ input[type=number]{width:100%;min-height:60px;font:inherit;font-size:1.4rem;font
 
 <section class="card adm hide" id="admCard">
   <h2>🔧 Admin</h2>
-  <label class="mute" for="fx">EUR/USD-Kurs (1 SCOOP = 0,10 €)</label>
-  <input id="fx" type="number" inputmode="decimal" step="0.0001" min="0.2" max="5">
-  <p class="mute" id="fxP" style="text-align:center"></p>
-  <button id="rateB">Kurs setzen</button>
-  <h2 style="margin-top:8px">USDC abheben</h2>
+  <h2 style="margin-top:0">EURC abheben</h2>
   <div class="row"><button class="sec" data-s="wd" data-d="-1" aria-label="weniger">−</button><div class="val" id="wdV"></div><button class="sec" data-s="wd" data-d="1" aria-label="mehr">+</button></div>
-  <input type="range" id="wd" min="1" max="1" step="1" value="1" aria-label="USDC abheben">
+  <input type="range" id="wd" min="1" max="1" step="1" value="1" aria-label="EURC abheben">
   <button id="wdB">Abheben</button>
   <button class="sec" id="wdAll">Alles abheben</button>
   <p class="mute">Geht an deine eigene Wallet.</p>
@@ -99,8 +97,8 @@ const store={get:k=>{try{return localStorage.getItem(k)}catch{}},set:(k,v)=>{try
 const selectedNet=(typeof location!=='undefined'?new URLSearchParams(location.search).get('net'):null)||store.get('scoop.net');
 const NET=selectedNet==='mainnet'?'mainnet':'devnet';
 const NETS={
-  devnet:{rpc:'https://api.devnet.solana.com',chain:'solana:devnet',usdc:'BHDWiNzzgPkNj8gX9SZU7U6fywJhrSK99hBC9A3tbR9f',cl:'?cluster=devnet'},
-  mainnet:{rpc:'https://solana-rpc.publicnode.com',chain:'solana:mainnet',usdc:'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',cl:''}
+  devnet:{rpc:'https://api.devnet.solana.com',chain:'solana:devnet',eurc:'BHDWiNzzgPkNj8gX9SZU7U6fywJhrSK99hBC9A3tbR9f',cl:'?cluster=devnet'},
+  mainnet:{rpc:'https://solana-rpc.publicnode.com',chain:'solana:mainnet',eurc:'HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr',cl:''}
 };
 const N=NETS[NET];
 const PROG='7QzEwf8ZRRjikZAyL2jPs8RsUKxQh2cwNHCMu6bPiWiL';
@@ -112,9 +110,10 @@ const T22='TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
 const ATAP='ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL';
 const PD='FhoBCPQZeFvQaYXjgo4maVNAYxCUXzeCrDxS8gZr4x1c';
 const SYS='11111111111111111111111111111111';
-const DISC={buy:'00b835872e6bbae5',pay:'60433ef6cc01bffe',rate:'633aaaeea0784a0b',wd:'723148b81b9cf39b'};
+const DISC={buy:'00b835872e6bbae5',pay:'60433ef6cc01bffe',wd:'723148b81b9cf39b'};
 const HALF=500000n;            // 0,5 SCOOP in Basiseinheiten
 const CUP=2500000n;            // 1 Tasse = 2,5 SCOOP
+const RATE=10000000n;          // fest: 1 EURC = 10 SCOOP (1 SCOOP = 0,10 EURC)
 
 /* ===== Kern: Base58, PDA, Transaktion (ohne Fremdbibliothek) ===== */
 const AL='123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
@@ -143,9 +142,8 @@ const u64=n=>{const b=new Uint8Array(8);new DataView(b.buffer).setBigUint64(0,n,
 const hex=h=>Uint8Array.from(h.match(/../g).map(x=>parseInt(x,16)));
 const K=(k,s,w)=>({k,s,w});
 const ixAta=(me,ataK,mint=MINT,tp=T22)=>({prog:ATAP,data:Uint8Array.of(1),keys:[K(me,1,1),K(ataK,0,1),K(me,0,0),K(mint,0,0),K(SYS,0,0),K(tp,0,0)]});
-const ixRate=(me,r)=>({prog:PROG,data:cat(hex(DISC.rate),u64(r)),keys:[K(me,1,0),K(PD,0,0),K(CONFIG,0,1)]});
-const ixWd=(me,to,amt)=>({prog:PROG,data:cat(hex(DISC.wd),u64(amt)),keys:[K(me,1,0),K(PD,0,0),K(CONFIG,0,0),K(N.usdc,0,0),K(VAULT,0,1),K(to,0,1),K(TOKEN,0,0)]});
-const ixBuy=(me,uU,uS,amt)=>({prog:PROG,data:cat(hex(DISC.buy),u64(amt)),keys:[K(me,1,0),K(CONFIG,0,0),K(N.usdc,0,0),K(MINT,0,1),K(uU,0,1),K(uS,0,1),K(VAULT,0,1),K(TOKEN,0,0),K(T22,0,0)]});
+const ixWd=(me,to,amt)=>({prog:PROG,data:cat(hex(DISC.wd),u64(amt)),keys:[K(me,1,0),K(PD,0,0),K(CONFIG,0,0),K(N.eurc,0,0),K(VAULT,0,1),K(to,0,1),K(TOKEN,0,0)]});
+const ixBuy=(me,uU,uS,amt)=>({prog:PROG,data:cat(hex(DISC.buy),u64(amt)),keys:[K(me,1,0),K(CONFIG,0,0),K(N.eurc,0,0),K(MINT,0,1),K(uU,0,1),K(uS,0,1),K(VAULT,0,1),K(TOKEN,0,0),K(T22,0,0)]});
 const ixPay=(me,uS,amt)=>({prog:PROG,data:cat(hex(DISC.pay),u64(amt)),keys:[K(me,1,0),K(MINT,0,1),K(uS,0,1),K(T22,0,0)]});
 
 /* ===== UI ===== */
@@ -153,7 +151,7 @@ if(typeof document!=='undefined'){
 const $=id=>document.getElementById(id),sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const de=(n,d=2)=>n.toLocaleString('de-DE',{minimumFractionDigits:d,maximumFractionDigits:d});
 const sc=x=>de(Number(x)/1e6);
-let wallets=[],W,acct,me,uS,uU,S={},busy=false;
+let wallets=[],W,acct,me,uS,uU,S={ok:false},busy=false;
 
 const rpc=async(method,params=[])=>{const r=await fetch(N.rpc,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method,params})});const j=await r.json();if(j.error)throw Error(j.error.message);return j.result};
 const raw=async key=>{try{const r=await rpc('getAccountInfo',[key,{encoding:'base64'}]);const b=r&&r.value&&r.value.data&&r.value.data[0];return b?Uint8Array.from(atob(b),c=>c.charCodeAt(0)):null}catch{return null}};
@@ -170,11 +168,11 @@ function drawWallets(){const c=$('connect');if(me){c.classList.add('hide');retur
   if(!wallets.length){const u=encodeURIComponent(location.href),o=encodeURIComponent(location.origin);
     for(const [n,l] of [['Phantom','https://phantom.app/ul/browse/'+u+'?ref='+o],['Solflare','https://solflare.com/ul/v1/browse/'+u+'?ref='+o]]){const a=document.createElement('button');a.textContent='In '+n+' öffnen';a.onclick=()=>location.href=l;c.append(a)}}}
 let unsub;
-async function use(w,a){W=w;acct=a;me=a.address;S={};[uS,uU]=await Promise.all([ata(me,MINT,T22),ata(me,N.usdc,TOKEN)]);
+async function use(w,a){W=w;acct=a;me=a.address;S={ok:false};[uS,uU]=await Promise.all([ata(me,MINT,T22),ata(me,N.eurc,TOKEN)]);
   $('who').textContent=me.slice(0,4)+'…'+me.slice(-4)+' · wechseln';$('who').classList.remove('hide');$('bal').classList.remove('hide');drawWallets();
-  $('cups').textContent='–';$('scoops').textContent='';$('admCard').classList.add('hide');
+  $('cups').textContent='–';$('scoops').textContent='';$('admCard').classList.add('hide');$('bad').classList.add('hide');
   $('cup').value=store.get('scoop.cup.'+me)||5;sliders();await load()}
-function reset(){me=W=null;S={};if(unsub)unsub();unsub=null;for(const id of ['who','bal','admCard'])$(id).classList.add('hide');
+function reset(){me=W=null;S={ok:false};if(unsub)unsub();unsub=null;for(const id of ['who','bal','admCard','bad'])$(id).classList.add('hide');
   for(const id of ['payCard','buyCard'])$(id).classList.add('off');$('hints').innerHTML='';$('kasse').textContent='';drawWallets()}
 async function leave(){const w=W;store.set('scoop.w','');reset();try{await w.features['standard:disconnect']?.disconnect()}catch{}
   toast('Getrennt. Konto in der Wallet wechseln und hier neu verbinden.')}
@@ -184,21 +182,31 @@ async function connect(w,silent){try{const r=await w.features['standard:connect'
   }catch(e){if(!me&&!silent)toast('Verbinden abgebrochen','err')}}
 
 async function load(){try{const bal=a=>raw(a).then(d=>d?u64(d,64):0n);
-  const [s,u,sol,rate,vault,sup,adm]=await Promise.all([bal(uS),bal(uU),rpc('getBalance',[me]).then(r=>r.value),
-    raw(CONFIG).then(d=>{if(!d)throw Error('Konfiguration nicht gefunden.');return u64(d,40)}),
+  const [s,u,sol,cfg,vault,sup,adm]=await Promise.all([bal(uS),bal(uU),rpc('getBalance',[me]).then(r=>r.value),
+    raw(CONFIG).then(d=>{if(!d)throw Error('Konfiguration nicht gefunden.');return{mint:b58e(d.slice(8,40)),rate:u64(d,40)}}),
     bal(VAULT),raw(MINT).then(d=>{if(!d)throw Error('Mint nicht gefunden.');return u64(d,36)}),
     raw(PD).then(d=>!!d&&d[12]===1&&b58e(d.slice(13,45))===me)]);
-  S={s,u,sol,rate,vault,sup,adm};draw()}catch(e){toast('Kontostand konnte nicht geladen werden. Bitte Seite neu laden.','err')}}
+  S={s,u,sol,rate:cfg.rate,mint:cfg.mint,vault,sup,adm,ok:cfg.mint===N.eurc&&cfg.rate===RATE};draw()}catch(e){S.ok=false;toast('Kontostand konnte nicht geladen werden. Bitte Seite neu laden.','err')}}
 
 const cupAmt=()=>BigInt($('cup').value)*HALF,buyAmt=()=>BigInt($('buy').value)*1000000n;
 function sliders(){const c=cupAmt();$('cupV').textContent=de(Number(c)/1e6,1)+' Löffel';$('pay').textContent='☕ '+de(Number(c)/1e6,1)+' SCOOP verbuchen';
-  $('buyV').textContent=$('buy').value+' USDC';$('wdV').textContent=$('wd').value+' USDC';
-  if(S.rate){const g=buyAmt()*S.rate/1000000n;$('buyP').textContent='→ '+sc(g)+' SCOOP ≈ '+de(Number(g)/Number(CUP),0)+' Tassen'}}
-function draw(){$('admCard').classList.toggle('hide',!S.adm);$('wd').max=Math.max(1,Number(S.vault/1000000n));$('fx').placeholder='aktuell '+de(10/(Number(S.rate)/1e6),4);sliders();$('cups').textContent=de(Number(S.s)/Number(CUP),1);$('scoops').textContent=sc(S.s)+' SCOOP · '+sc(S.u)+' USDC';
-  $('payCard').classList.remove('off');$('buyCard').classList.remove('off');
-  const h=[];if(S.sol<3000000)h.push('Du brauchst etwas SOL für Gebühren (ca. 0,01 SOL).');if(S.u===0n)h.push('Auf dieser Wallet liegt kein USDC.');
+  $('buyV').textContent=$('buy').value+' EURC';$('wdV').textContent=$('wd').value+' EURC';
+  const g=buyAmt()*RATE/1000000n;$('buyP').textContent='→ '+sc(g)+' SCOOP ≈ '+de(Number(g)/Number(CUP),0)+' Tassen'}
+function draw(){
+  const bad=!S.ok;
+  if(bad){$('badMsg').textContent='Die Kasse nutzt '+(S.mint?S.mint.slice(0,4)+'…'+S.mint.slice(-4):'–')+' mit Kurs '+sc(S.rate||0n)+' – erwartet: '+N.eurc.slice(0,4)+'… bei 10 SCOOP/EURC. Aufladen und Abheben sind gesperrt.';
+    $('bad').classList.remove('hide')}else $('bad').classList.add('hide');
+  $('admCard').classList.toggle('hide',!S.adm||bad);
+  $('wd').max=Math.max(1,Number((S.vault||0n)/1000000n));sliders();
+  $('cups').textContent=de(Number(S.s||0n)/Number(CUP),1);
+  $('scoops').textContent=sc(S.s||0n)+' SCOOP · '+sc(S.u||0n)+' EURC';
+  $('payCard').classList.remove('off');
+  if(bad)$('buyCard').classList.add('off');else $('buyCard').classList.remove('off');
+  for(const id of ['buyB','wdB','wdAll'])$(id).disabled=bad||busy;
+  const h=[];if(bad)h.push('Die Kasse ist noch nicht auf EURC mit festem Kurs 10 SCOOP/EURC umgestellt.');
+  else{if(S.sol<3000000)h.push('Du brauchst etwas SOL für Gebühren (ca. 0,01 SOL).');if(S.u===0n)h.push('Auf dieser Wallet liegt kein EURC.')}
   $('hints').innerHTML=h.map(x=>'<div class="hint">'+x+'</div>').join('');
-  $('kasse').textContent='Kasse: '+sc(S.vault)+' USDC · im Umlauf: '+sc(S.sup)+' SCOOP · Kurs '+sc(S.rate)+' SCOOP/USDC'}
+  $('kasse').textContent='Kasse: '+sc(S.vault||0n)+' EURC · im Umlauf: '+sc(S.sup||0n)+' SCOOP · 1 SCOOP = 0,10 EURC'}
 
 async function send(ixs){const bh=(await rpc('getLatestBlockhash',[{commitment:'confirmed'}])).value.blockhash;
   const tx=buildTx(me,ixs,b58d(bh));
@@ -209,18 +217,16 @@ async function send(ixs){const bh=(await rpc('getLatestBlockhash',[{commitment:'
 async function act(msg,fn,ok){if(busy)return;busy=true;document.querySelectorAll('button').forEach(b=>b.disabled=true);toast('Bitte in der Wallet bestätigen …');
   try{const sig=await fn();await load();toast(ok(),'ok','https://explorer.solana.com/tx/'+sig+N.cl)}
   catch(e){toast(/reject|denied|cancel/i.test(e.message)?'Abgebrochen.':e.message,'err')}
-  finally{busy=false;document.querySelectorAll('button').forEach(b=>b.disabled=false)}}
+  finally{busy=false;document.querySelectorAll('button').forEach(b=>b.disabled=false);if(me)draw()}}
 
 $('pay').onclick=()=>{const a=cupAmt();if(S.s<a)return toast('Zu wenig SCOOP – bitte erst aufladen.','err');
   act('',()=>send([ixPay(me,uS,a)]),()=>'☕ Verbucht! Noch '+de(Number(S.s)/Number(CUP),1)+' Tassen übrig.')};
-$('buyB').onclick=()=>{const a=buyAmt();if(S.u<a)return toast('Du hast nur '+sc(S.u)+' USDC.','err');
+$('buyB').onclick=()=>{if(!S.ok)return toast('Kasse nicht auf EURC umgestellt – Aufladen gesperrt.','err');
+  const a=buyAmt();if(S.u<a)return toast('Du hast nur '+sc(S.u)+' EURC.','err');
   act('',()=>send([ixAta(me,uS),ixBuy(me,uU,uS,a)]),()=>'✅ Aufgeladen! Du hast jetzt '+de(Number(S.s)/Number(CUP),1)+' Tassen.')};
-const fxR=()=>{const f=parseFloat($('fx').value);return f>0.2&&f<5?BigInt(Math.round(10/f*1e6)):0n};
-$('fx').oninput=()=>{const r=fxR();$('fxP').textContent=r?'→ '+sc(r)+' SCOOP pro USDC (jetzt: '+sc(S.rate)+')':''};
-$('rateB').onclick=()=>{const r=fxR();if(!r)return toast('Bitte einen EUR/USD-Kurs eingeben, z. B. 1,1270.','err');
-  if(confirm('Kurs auf '+sc(r)+' SCOOP pro USDC setzen?'))act('',()=>send([ixRate(me,r)]),()=>'✅ Kurs gesetzt: '+sc(r)+' SCOOP/USDC')};
-const wd=a=>{if(a<=0n||a>S.vault)return toast('So viel liegt nicht in der Kasse.','err');
-  if(confirm('Wirklich '+sc(a)+' USDC an deine Wallet abheben?'))act('',()=>send([ixAta(me,uU,N.usdc,TOKEN),ixWd(me,uU,a)]),()=>'✅ '+sc(a)+' USDC abgehoben.')};
+const wd=a=>{if(!S.ok)return toast('Kasse nicht auf EURC umgestellt – Abheben gesperrt.','err');
+  if(a<=0n||a>S.vault)return toast('So viel liegt nicht in der Kasse.','err');
+  if(confirm('Wirklich '+sc(a)+' EURC an deine Wallet abheben?'))act('',()=>send([ixAta(me,uU,N.eurc,TOKEN),ixWd(me,uU,a)]),()=>'✅ '+sc(a)+' EURC abgehoben.')};
 $('wdB').onclick=()=>wd(BigInt($('wd').value)*1000000n);$('wdAll').onclick=()=>wd(S.vault);
 $('save').onclick=()=>{store.set('scoop.cup.'+me,$('cup').value);toast('★ Gespeichert: '+de(Number(cupAmt())/1e6,1)+' SCOOP ist jetzt deine Tasse.','ok')};
 for(const id of ['cup','buy','wd'])$(id).oninput=sliders;
