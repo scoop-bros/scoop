@@ -101,14 +101,14 @@ const NETS={
   mainnet:{rpc:'https://solana-rpc.publicnode.com',chain:'solana:mainnet',eurc:'HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr',cl:''}
 };
 const N=NETS[NET];
-const PROG='7QzEwf8ZRRjikZAyL2jPs8RsUKxQh2cwNHCMu6bPiWiL';
-const CONFIG='FBLDbjc7tG7YZJMMvnNFnK2Q1iquNPjJ4mHiv47Ufqsk';
-const MINT='J9nHG1LgzTiHLZPqxtZcJ9eJapTSWhUGzkVj8Up84nXT';
-const VAULT='BVibkWi4cpBnyxLj5kb421VUND1BcgnmBTvZdV7ksQQ';
+const PROG='9eRAU5VraSzZoUg2DbknEhKFvEdpqdBUsZ2y62YxSzUt';
+const CONFIG='D3wfDPvHtD5okZA36394LGgSpwimgoX32ybPNSxP5Hwp';
+const MINT='DztAhNDC6fd7XkbKzfUCcJYiuxBZ8QNKSiJwcSjngpGc';
+const VAULT='5sgFrB7jH2ydjfT5dYySJwboZGGBRRWsPVymLWNvGX3T';
 const TOKEN='TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 const T22='TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
 const ATAP='ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL';
-const PD='FhoBCPQZeFvQaYXjgo4maVNAYxCUXzeCrDxS8gZr4x1c';
+const PD='4xGDUL4GdXuo9W3ivjbL8vUKfGRBhH9agg1JhYYAVSv7';
 const SYS='11111111111111111111111111111111';
 const DISC={buy:'00b835872e6bbae5',pay:'60433ef6cc01bffe',wd:'723148b81b9cf39b'};
 const HALF=500000n;            // 0,5 SCOOP in Basiseinheiten
@@ -120,12 +120,12 @@ const AL='123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const b58d=s=>{let n=0n;for(const c of s)n=n*58n+BigInt(AL.indexOf(c));let h=n.toString(16);if(h.length%2)h='0'+h;const b=n===0n?[]:h.match(/../g).map(x=>parseInt(x,16));let z=0;while(s[z]==='1')z++;return Uint8Array.from([...Array(z).fill(0),...b])};
 const b58e=b=>{let n=0n;for(const x of b)n=n*256n+BigInt(x);let s='';while(n>0n){s=AL[Number(n%58n)]+s;n/=58n}for(const x of b){if(x)break;s='1'+s}return s};
 const cat=(...a)=>{const o=new Uint8Array(a.reduce((t,x)=>t+x.length,0));let i=0;for(const x of a){o.set(x,i);i+=x.length}return o};
-const P=2n**255n-19n,mod=a=>((a%P)+P)%P;
+const P=2n**255n-19n,D=37095705934669439343138083508754565189542113879843219016388785533085940283555n,mod=a=>((a%P)+P)%P;
 const pw=(b,e)=>{let r=1n;b=mod(b);while(e>0n){if(e&1n)r=mod(r*b);b=mod(b*b);e>>=1n}return r};
-const D=mod(-121665n*pw(121666n,P-2n));
-function onCurve(b){let y=0n;for(let i=31;i>=0;i--)y=(y<<8n)|BigInt(b[i]);y=mod(y&((1n<<255n)-1n));
-  const y2=mod(y*y),u=mod(y2-1n),v=mod(D*y2+1n),v3=mod(v*v*v),v7=mod(v3*v3*v);
-  const x=mod(u*v3*pw(u*v7,(P-5n)/8n)),t=mod(v*x*x);return t===u||t===mod(-u)}
+function onCurve(b){let y=0n;for(let i=0;i<32;i++)y+=BigInt(b[i])<<(8n*BigInt(i));y&=(1n<<255n)-1n; // ed25519 y little-endian, x-Vorzeichen-Bit weglassen
+  if(y>=P)return false;const y2=mod(y*y),u=mod(y2-1n),v=mod(D*y2+1n);
+  if(v===0n)return false;const x2=mod(u*pw(v,P-2n));
+  if(x2===0n)return u===0n;return pw(x2,(P-1n)/2n)===1n} // ed25519: -x²+y²=1+D·x²y², PDA muss nicht auf der ed25519-Kurve liegen
 async function findPda(seeds,prog){const pb=b58d(prog),sfx=new TextEncoder().encode('ProgramDerivedAddress');
   for(let bump=255;bump>=0;bump--){const h=new Uint8Array(await crypto.subtle.digest('SHA-256',cat(...seeds,Uint8Array.of(bump),pb,sfx)));if(!onCurve(h))return b58e(h)}throw Error('kein PDA')}
 const ata=(owner,mint,tp)=>findPda([b58d(owner),b58d(tp),b58d(mint)],ATAP);
@@ -143,7 +143,7 @@ const hex=h=>Uint8Array.from(h.match(/../g).map(x=>parseInt(x,16)));
 const K=(k,s,w)=>({k,s,w});
 const ixAta=(me,ataK,mint=MINT,tp=T22)=>({prog:ATAP,data:Uint8Array.of(1),keys:[K(me,1,1),K(ataK,0,1),K(me,0,0),K(mint,0,0),K(SYS,0,0),K(tp,0,0)]});
 const ixWd=(me,to,amt)=>({prog:PROG,data:cat(hex(DISC.wd),u64(amt)),keys:[K(me,1,0),K(PD,0,0),K(CONFIG,0,0),K(N.eurc,0,0),K(VAULT,0,1),K(to,0,1),K(TOKEN,0,0)]});
-const ixBuy=(me,uU,uS,amt)=>({prog:PROG,data:cat(hex(DISC.buy),u64(amt)),keys:[K(me,1,0),K(CONFIG,0,0),K(N.eurc,0,0),K(MINT,0,1),K(uU,0,1),K(uS,0,1),K(VAULT,0,1),K(TOKEN,0,0),K(T22,0,0)]});
+const ixBuy=(me,uU,uS,amt,min)=>({prog:PROG,data:cat(hex(DISC.buy),u64(amt),u64(min)),keys:[K(me,1,0),K(CONFIG,0,0),K(N.eurc,0,0),K(MINT,0,1),K(uU,0,1),K(uS,0,1),K(VAULT,0,1),K(TOKEN,0,0),K(T22,0,0)]});
 const ixPay=(me,uS,amt)=>({prog:PROG,data:cat(hex(DISC.pay),u64(amt)),keys:[K(me,1,0),K(MINT,0,1),K(uS,0,1),K(T22,0,0)]});
 
 /* ===== UI ===== */
@@ -223,7 +223,8 @@ $('pay').onclick=()=>{const a=cupAmt();if(S.s<a)return toast('Zu wenig SCOOP –
   act('',()=>send([ixPay(me,uS,a)]),()=>'☕ Verbucht! Noch '+de(Number(S.s)/Number(CUP),1)+' Tassen übrig.')};
 $('buyB').onclick=()=>{if(!S.ok)return toast('Kasse nicht auf EURC umgestellt – Aufladen gesperrt.','err');
   const a=buyAmt();if(S.u<a)return toast('Du hast nur '+sc(S.u)+' EURC.','err');
-  act('',()=>send([ixAta(me,uS),ixBuy(me,uU,uS,a)]),()=>'✅ Aufgeladen! Du hast jetzt '+de(Number(S.s)/Number(CUP),1)+' Tassen.')};
+  const min=a*RATE/1000000n; // min. Output, falls der Kurs zwischen Vorschau und Ausführung sinkt
+  act('',()=>send([ixAta(me,uS),ixBuy(me,uU,uS,a,min)]),()=>'✅ Aufgeladen! Du hast jetzt '+de(Number(S.s)/Number(CUP),1)+' Tassen.')};
 const wd=a=>{if(!S.ok)return toast('Kasse nicht auf EURC umgestellt – Abheben gesperrt.','err');
   if(a<=0n||a>S.vault)return toast('So viel liegt nicht in der Kasse.','err');
   if(confirm('Wirklich '+sc(a)+' EURC an deine Wallet abheben?'))act('',()=>send([ixAta(me,uU,N.eurc,TOKEN),ixWd(me,uU,a)]),()=>'✅ '+sc(a)+' EURC abgehoben.')};

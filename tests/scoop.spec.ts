@@ -1,5 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
-import { ATA_SCOOP, DEVNET, MAINNET, CONFIG, MINT, VAULT, PD, EURC_DEVNET, EURC_MAINNET, FIXED_RATE, configAccount, mintAccount, mockRpc, pdAccount, tokenAccount } from './helpers';
+import { ATA_SCOOP, ATA_EURC, DEVNET, MAINNET, CONFIG, MINT, VAULT, PD, PROG, EURC_DEVNET, EURC_MAINNET, FIXED_RATE, b58d, configAccount, mintAccount, mockRpc, pdAccount, tokenAccount } from './helpers';
 
 const url = `file://${__dirname}/../index.html`;
 const U = '4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T';
@@ -126,6 +126,67 @@ test('Alte USDC-Config: Kasse erkannt, Aufladen und Abheben gesperrt', async ({ 
   await expect(page.locator('#buyB')).toBeDisabled();
   await expect(page.locator('#admCard')).toBeHidden();
   await expect(page.locator('#hints')).toContainText('noch nicht auf EURC');
+});
+
+test('Aufladen: buy-Instruction enthält EURC-Betrag und Mindestoutput', async ({ page }) => {
+  const uU = ATA_EURC[U][EURC_DEVNET];
+  const txs: Uint8Array[] = [];
+  const baseAccounts = base(U);
+  const accounts = {
+    ...baseAccounts,
+    [uU]: tokenAccount(10000000n) // 10 EURC, damit 5 EURC laden gehen
+  };
+  await mockRpc(page, accounts);
+  await page.addInitScript(({ addr }: { addr: string }) => {
+    // Wallet wie in injectWallet, aber signAndSendTransaction gibt das Transaktions-Byte zurück.
+    const accounts = [{ address: addr, chains: ['solana:mainnet', 'solana:devnet'], features: ['solana:signAndSendTransaction', 'standard:connect'] }];
+    const wallet = {
+      version: '1.0.0', name: 'Fake Wallet', icon: 'data:image/svg+xml;base64,', chains: ['solana:mainnet', 'solana:devnet'], accounts,
+      features: {
+        'standard:connect': { version: '1.0.0', connect: async () => ({ accounts }) },
+        'solana:signAndSendTransaction': { version: '1.0.0', signAndSendTransaction: async (t: { transaction: Uint8Array }) => { window.__txs.push(t.transaction); return { signature: new Uint8Array(64) } } },
+        'standard:events': { version: '1.0.0', on: () => () => {} },
+        'standard:disconnect': { version: '1.0.0', disconnect: async () => {} }
+      }
+    };
+    window.__txs = [] as unknown as Uint8Array[];
+    addEventListener('wallet-standard:app-ready', (e: any) => e.detail.register(wallet));
+  }, { addr: U });
+  await page.goto(url);
+  await page.getByRole('button', { name: 'Mit Fake Wallet verbinden' }).click();
+  await expect(page.locator('#bad')).toBeHidden();
+  await page.locator('#buyB').click();
+  await page.waitForFunction(() => (window as any).__txs.length === 1);
+  const tx = new Uint8Array(await page.evaluate(() => (window as any).__txs[0].slice()));
+  // Layout von buildTx in index.html:
+  // [version 1][sig 64][nS,roS,roN 3][cu numAccts][accts n*32][blockhash 32][cu ixCount][ixs…]
+  // Jeder Ix: [progIdx 1][cu numKeys][keyIdx k][cu dataLen][data]
+  let p = 1 + 64;
+  p += 3; // header nS/roS/roN
+  const cu = (): number => {
+    const a = tx[p], b = tx[p + 1];
+    if (a < 128) { p += 1; return a; }
+    p += 2;
+    return (a & 127) | (b << 7);
+  };
+  const numAccts = cu();
+  p += numAccts * 32;
+  p += 32; // blockhash
+  const ixCount = cu();
+  const ixs: Uint8Array[] = [];
+  for (let i = 0; i < ixCount; i++) {
+    p++; // program id index
+    const k = cu(); // num account indices
+    p += k; // account indices (je 1 Byte)
+    const dl = cu(); // data length
+    ixs.push(tx.slice(p, p + dl));
+    p += dl;
+  }
+  const buy = ixs.find(d => d[0] === 0x00 && d[1] === 0xb8 && d[2] === 0x35)!; // DISC.buy
+  expect(buy).toBeDefined();
+  const u64le = (b: Uint8Array, o: number) => new DataView(b.buffer, b.byteOffset + o, 8).getBigUint64(0, true).toString();
+  expect(u64le(buy, 8)).toBe('5000000');               // 5 EURC
+  expect(u64le(buy, 16)).toBe('50000000');             // min 50 SCOOP = 5 EURC × 10
 });
 
 test('Falscher Kurs: Kasse gesperrt, Abweichung benannt', async ({ page }) => {

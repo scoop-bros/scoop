@@ -2,16 +2,18 @@ import type { Page, Route } from '@playwright/test';
 
 export const DEVNET = 'https://api.devnet.solana.com';
 export const MAINNET = 'https://solana-rpc.publicnode.com';
-export const CONFIG = 'FBLDbjc7tG7YZJMMvnNFnK2Q1iquNPjJ4mHiv47Ufqsk';
-export const MINT = 'J9nHG1LgzTiHLZPqxtZcJ9eJapTSWhUGzkVj8Up84nXT';
-export const VAULT = 'BVibkWi4cpBnyxLj5kb421VUND1BcgnmBTvZdV7ksQQ';
-export const PD = 'FhoBCPQZeFvQaYXjgo4maVNAYxCUXzeCrDxS8gZr4x1c';
+export const CONFIG = 'D3wfDPvHtD5okZA36394LGgSpwimgoX32ybPNSxP5Hwp';
+export const MINT = 'DztAhNDC6fd7XkbKzfUCcJYiuxBZ8QNKSiJwcSjngpGc';
+export const VAULT = '5sgFrB7jH2ydjfT5dYySJwboZGGBRRWsPVymLWNvGX3T';
+export const PD = '4xGDUL4GdXuo9W3ivjbL8vUKfGRBhH9agg1JhYYAVSv7';
+export const PROG = '9eRAU5VraSzZoUg2DbknEhKFvEdpqdBUsZ2y62YxSzUt';
 // Erwartete EURC-Zahlungsmints, identisch zur KONFIG in index.html.
 export const EURC_DEVNET = 'BHDWiNzzgPkNj8gX9SZU7U6fywJhrSK99hBC9A3tbR9f'; // Test-EURC der Kasse
 export const EURC_MAINNET = 'HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr'; // Circle EURC
 export const FIXED_RATE = 10000000n; // 1 EURC = 10 SCOOP
 export const AL = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 
+export { b58d };
 export const b58e = (b: Uint8Array): string => {
   let n = 0n;
   for (const x of b) n = n * 256n + BigInt(x);
@@ -70,8 +72,18 @@ export const pdAccount = (owner: string): Uint8Array => {
 // Vorab berechnet für die beiden Test-Wallet-Adressen aus tests/scoop.spec.ts.
 // Seeds wie in index.html: [Owner, Token-Programm, Mint] über das ATA-Programm; netzunabhängig (SCOOP, Token-2022).
 export const ATA_SCOOP: Record<string, string> = {
-  '4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T': '44GgRrjNmjVLKm8ee4dJyiM2hYfomv7GBVVsfQUj95HT',
-  '5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1': 'EeoUMRHn1dqW4arHx1SJdkWNCX9yvca2WjyExQLuVZKA'
+  '4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T': 'BGMPm5LdkUre9X4zhdRq7e2hLe4gTAhNL2DbBn2V6v1x',
+  '5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1': 'TJPofQ2tqtWEhjDD2FWyzgm31cbgwL8HiGTYwZ11ou8'
+};
+
+// EURC-ATA (klassisches SPL-Token) pro Wallet-Adresse und Test-Mint.
+export const ATA_EURC: Record<string, Record<string, string>> = {
+  '4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T': {
+    [EURC_DEVNET]: 'dBy9r8FbkzUGWjJ39ATgfhVw2cUWrM5WDZHsyWhB96p'
+  },
+  '5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1': {
+    [EURC_DEVNET]: 'ASswcFfSQZoXiAwqdGgZ2uxwGCAixeUUsLrXBDCQhfQ5'
+  }
 };
 
 export const mockRpc = async (
@@ -108,6 +120,8 @@ export const mockRpc = async (
         body: JSON.stringify({ jsonrpc: '2.0', id: id ?? 1, result })
       });
     if (method === 'getBalance') return respond({ value: 1000000 }); // 0,001 SOL → SOL-Hinweis
+    if (method === 'getLatestBlockhash') return respond({ value: { blockhash: '11111111111111111111111111111111', lastValidBlockHeight: 1 } });
+    if (method === 'getSignatureStatuses') return respond({ value: [{ confirmationStatus: 'confirmed', err: null }] });
     if (method === 'getAccountInfo') {
       const data = accounts[(params as string[])[0]];
       return respond({
